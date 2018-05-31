@@ -116,7 +116,7 @@ export default Mixin.create({
 
     let { ignoreAttributes, otherAttributes, copyByReference, overwrite } = options;
     let { copies } = _meta;
-    let { modelName } = this.constructor;
+    let modelName = options.modelName || this.constructor.modelName;
     let store = this.get('store');
     let guid = guidFor(this);
     let relationships = [];
