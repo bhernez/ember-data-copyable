@@ -128,7 +128,7 @@ export default Mixin.create({
       return copies[guid];
     }
 
-    let model = store.createRecord(modelName);
+    let model = options.model || store.createRecord(modelName);
     copies[guid] = model;
 
     // Copy all the attributes
