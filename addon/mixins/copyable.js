@@ -1,22 +1,19 @@
-import Ember from 'ember';
 import getTransform from 'ember-data-copyable/utils/get-transform';
 import isUndefined from 'ember-data-copyable/utils/is-undefined';
-import { COPY_TASK, COPY_TASK_RUNNER, IS_COPYABLE } from 'ember-data-copyable/-private/symbols';
+import {
+  COPY_TASK,
+  COPY_TASK_RUNNER,
+  IS_COPYABLE
+} from 'ember-data-copyable/-private/symbols';
 import { task, all } from 'ember-concurrency';
 import { assign } from '@ember/polyfills';
 import { guidFor } from '@ember/object/internals';
+import { Copyable } from 'ember-copy';
 import { isEmpty } from '@ember/utils';
 import { runInDebug } from '@ember/debug';
 import Mixin from '@ember/object/mixin';
 
-const {
-  Logger,
-  Copyable
-} = Ember;
-
-const {
-  keys
-} = Object;
+const { keys } = Object;
 
 const PRIMITIVE_TYPES = ['string', 'number', 'boolean'];
 
@@ -74,30 +71,38 @@ export default Mixin.create({
    * @type {Task}
    * @private
    */
-  [COPY_TASK_RUNNER]: task(function *(deep, options) {
-    let _meta = { copies: {}, transforms: {} };
-    let store = this.get('store');
+  [COPY_TASK_RUNNER]: task(function*(deep, options) {
+    const _meta = { copies: {}, transforms: {} };
+    const store = this.get('store');
     let isSuccessful = false;
 
     try {
-      let model = yield this.get(COPY_TASK).perform(deep, options, _meta);
+      const model = yield this.get(COPY_TASK).perform(deep, options, _meta);
       isSuccessful = true;
 
       return model;
     } catch (e) {
-      runInDebug(() => Logger.error('[ember-data-copyable]', e));
+      // eslint-disable-next-line no-console
+      runInDebug(() => console.error('[ember-data-copyable]', e));
 
       // Throw so the task promise will be rejected
       throw new Error(e);
     } finally {
       if (!isSuccessful) {
-        let copiesKeys = keys(_meta.copies);
+        const copiesKeys = keys(_meta.copies);
 
         // Display the error
-        runInDebug(() => Logger.error(`[ember-data-copyable] Failed to copy model '${this}'. Cleaning up ${copiesKeys.length} created copies...`));
+        runInDebug(() =>
+          // eslint-disable-next-line no-console
+          console.error(
+            `[ember-data-copyable] Failed to copy model '${this}'. Cleaning up ${
+              copiesKeys.length
+            } created copies...`
+          )
+        );
 
         // Unload all created records
-        copiesKeys.forEach((key) => store.unloadRecord(_meta.copies[key]));
+        copiesKeys.forEach(key => store.unloadRecord(_meta.copies[key]));
       }
     }
   }).drop(),
@@ -111,15 +116,20 @@ export default Mixin.create({
    * @type {Task}
    * @private
    */
-  [COPY_TASK]: task(function *(deep, options, _meta) {
+  [COPY_TASK]: task(function*(deep, options, _meta) {
     options = assign({}, DEFAULT_OPTIONS, this.get('copyableOptions'), options);
 
-    let { ignoreAttributes, otherAttributes, copyByReference, overwrite } = options;
-    let { copies } = _meta;
-    let modelName = options.modelName || this.constructor.modelName;
-    let store = this.get('store');
-    let guid = guidFor(this);
-    let relationships = [];
+    const {
+      ignoreAttributes,
+      otherAttributes,
+      copyByReference,
+      overwrite
+    } = options;
+    const { copies } = _meta;
+    const modelName = options.modelName || this.constructor.modelName;
+    const store = this.get('store');
+    const guid = guidFor(this);
+    const relationships = [];
     let attrs = {};
 
     // Handle cyclic relationships: If the model has already been copied,
@@ -128,30 +138,31 @@ export default Mixin.create({
       return copies[guid];
     }
 
-    let model = options.model || store.createRecord(modelName);
+    const model = options.model || store.createRecord(modelName);
     copies[guid] = model;
 
     // Copy all the attributes
-    this.eachAttribute((name, { type, options: attributeOptions }) => {
+    this.eachAttribute((name, { type, isFragment, options: attributeOptions }) => {
       if (ignoreAttributes.includes(name)) {
         return;
       } else if (!isUndefined(overwrite[name])) {
         attrs[name] = overwrite[name];
       } else if (
-          !isEmpty(type) &&
-          !copyByReference.includes(name) &&
-          !PRIMITIVE_TYPES.includes(type)
+        !isEmpty(type) &&
+        !copyByReference.includes(name) &&
+        !PRIMITIVE_TYPES.includes(type)
       ) {
         let value = this.get(name);
 
-        if (Copyable && Copyable.detect(value)) {
-          // "value" is an Ember.Object using the Ember.Copyable API (if you use
+        if ((Copyable && Copyable.detect(value)) || (value && isFragment)) {
+          // "value" is an Ember.Object using the ember-copy addon
+          // (ie. old deprecated Ember.Copyable API - if you use
           // the "Ember Data Model Fragments" addon and "value" is a fragment or
           // if use your own serializer where you deserialize a value to an
           // Ember.Object using this Ember.Copyable API)
           value = value.copy(deep);
-        } else {
-          let transform = getTransform(this, type, _meta);
+        } else if (!isFragment) {
+          const transform = getTransform(this, type, _meta);
 
           // Run the transform on the value. This should guarantee that we get
           // a new instance.
@@ -174,7 +185,7 @@ export default Mixin.create({
 
     // Copy all the relationships
     for (let i = 0; i < relationships.length; i++) {
-      let { name, meta } = relationships[i];
+      const { name, meta } = relationships[i];
 
       if (!isUndefined(overwrite[name])) {
         attrs[name] = overwrite[name];
@@ -185,42 +196,42 @@ export default Mixin.create({
       // or if we are doing a shallow copy
       if (!deep || copyByReference.includes(name)) {
         try {
-          let ref = this[meta.kind](name);
-          let copyRef = model[meta.kind](name);
-          let addFn = copyRef.hasManyRelationship.addInternalModels ? 'addInternalModels' : 'addRecords';
+          const ref = this[meta.kind](name);
+          const copyRef = model[meta.kind](name);
 
-          /*
-            NOTE: This is currently private API but has been approved @igorT.
-                  Supports Ember Data 2.5+
-            */
-          if (meta.kind === 'hasMany') {
-            copyRef.hasManyRelationship[addFn](ref.hasManyRelationship.members);
-          } else if (meta.kind === 'belongsTo') {
-            copyRef.belongsToRelationship[addFn](ref.belongsToRelationship.members);
-          }
+          copyRef[`${meta.kind}Relationship`].addRecordDatas(
+            ref[`${meta.kind}Relationship`].members
+          );
         } catch (e) {
-          attrs[name] = this.get(name);
+          attrs[name] = yield this.get(name);
         }
 
         continue;
       }
 
-      let value = yield this.get(name);
-      let relOptions = options.relationships[name];
-      let deepRel = relOptions && typeof relOptions.deep === 'boolean' ? relOptions.deep : deep;
+      const value = yield this.get(name);
+      const relOptions = options.relationships[name];
+      const deepRel =
+        relOptions && typeof relOptions.deep === 'boolean'
+          ? relOptions.deep
+          : deep;
 
       if (meta.kind === 'belongsTo') {
         if (value && value.get(IS_COPYABLE)) {
-          attrs[name] = yield value.get(COPY_TASK).perform(deepRel, relOptions, _meta);
+          attrs[name] = yield value
+            .get(COPY_TASK)
+            .perform(deepRel, relOptions, _meta);
         } else {
           attrs[name] = value;
         }
       } else if (meta.kind === 'hasMany') {
-        let firstObject = value.get('firstObject');
+        const firstObject = value.get('firstObject');
 
         if (firstObject && firstObject.get(IS_COPYABLE)) {
           attrs[name] = yield all(
-            value.getEach(COPY_TASK).invoke('perform', deepRel, relOptions, _meta)
+            value
+              .getEach(COPY_TASK)
+              .invoke('perform', deepRel, relOptions, _meta)
           );
         } else {
           attrs[name] = value;
