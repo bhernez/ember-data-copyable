@@ -1,4 +1,3 @@
-/* jshint node:true */
 // var RSVP = require('rsvp');
 var generateChangelog = require('ember-cli-changelog/lib/tasks/release-with-changelog');
 
@@ -13,7 +12,5 @@ module.exports = {
   // strategy: 'date',
   // format: 'YYYY-MM-DD',
   // timezone: 'America/Los_Angeles',
-
   beforeCommit: generateChangelog
-
 };
